@@ -56,7 +56,7 @@ class BehaviorRoom(object):
 
 
 class SkinnerBox(object):
-	def __init__(self, host, pumps, port=100, pump_volume="8.0", pump_rate="2.0"):
+	def __init__(self, host, pumps, port=100):
 		'''
 		A behavior box object that runs Telnet commands to its pumps via the 
 		Startech RS232 over IP adaptor. All Telnet connections/commands runs
@@ -80,29 +80,28 @@ class SkinnerBox(object):
 		self.host = host
 		self.pumps = pumps
 		self.port = port
-		self.pump_volume = pump_volume
-		self.pump_rate = pump_rate
 
-	def withdraw_pumps(self):
+	def withdraw_pumps(self, volume="8.0", pump_rate="2.0"):
 		'''Starts connection/pumping in a thread b/c non-blocking I/O is hard'''
-		thread = threading.Thread(target=self._connect_and_withdraw_pumps)
+		thread = threading.Thread(target=self._connect_and_withdraw_pumps(volume, pump_rate))
 		thread.start()
 
-	def _connect_and_withdraw_pumps(self):
+	def _connect_and_withdraw_pumps(self, volume, pump_rate):
 		'''TODO make this actually read responses and react intelligently'''
 		try:
 			tn = telnetlib.Telnet(self.host, self.port)
 		except Exception as e:
 			print "Could not connect to host %s due to error %s" % self.host, e
 		else:
+			print "Starting pumps on host: %s" % self.host
 			for channel in self.pumps:
-				print "pumping channel" + channel
+				print "Pumping channel: " + channel
 				time.sleep(1)
 				tn.write(channel + " FUN RAT" + "\r\n")
 				time.sleep(1)
-				tn.write(channel + " RAT " + self.pump_rate + " MM" + "\r\n")
+				tn.write(channel + " RAT " + pump_rate + " MM" + "\r\n")
 				time.sleep(1)
-				tn.write(channel + " VOL " + self.pump_volume + "\r\n")
+				tn.write(channel + " VOL " + volume + "\r\n")
 				time.sleep(1)
 				tn.write(channel + " DIR " + "WDR" + "\r\n")
 				time.sleep(1)
