@@ -83,8 +83,12 @@ class SkinnerBox(object):
 
 	def withdraw_pumps(self, volume="8.0", pump_rate="2.0"):
 		'''Starts connection/pumping in a thread b/c non-blocking I/O is hard'''
-		thread = threading.Thread(target=self._connect_and_withdraw_pumps(volume, pump_rate))
-		thread.start()
+		try:
+			thread = threading.Thread(target=\
+				self._connect_and_withdraw_pumps(volume, pump_rate))
+			thread.start()
+		except Exception as e:
+			print "Couldn't pump host %s due to exception: %s" % self.host, e
 
 	def _connect_and_withdraw_pumps(self, volume, pump_rate):
 		'''TODO make this actually read responses and react intelligently'''
