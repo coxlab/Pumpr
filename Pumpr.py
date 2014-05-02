@@ -47,6 +47,7 @@ class BehaviorRoom(object):
 		'''
 
 		result = config.config
+		print "hosts and channels: %s" % result
 		return result
 
 	def __iter__(self):
@@ -84,34 +85,43 @@ class SkinnerBox(object):
 	def withdraw_pumps(self, volume="8.0", pump_rate="2.0"):
 		'''Starts connection/pumping in a thread b/c non-blocking I/O is hard'''
 		try:
-			thread = threading.Thread(target=\
-				self._connect_and_withdraw_pumps(volume, pump_rate))
+			thread = threading.Thread(target=self._connect_and_withdraw_pumps(volume, pump_rate))
 			thread.start()
 		except Exception as e:
-			print "Couldn't pump host %s due to exception: %s" % self.host, e
+			print "Couldn't pump host %s due to exception: %s" % (self.host, e)
 
 	def _connect_and_withdraw_pumps(self, volume, pump_rate):
 		'''TODO make this actually read responses and react intelligently'''
 		try:
-			tn = telnetlib.Telnet(self.host, self.port)
+			self.tn = telnetlib.Telnet(self.host, self.port)
+			time.sleep(1)
 		except Exception as e:
-			print "Could not connect to host %s due to error %s" % self.host, e
+			print "Could not connect to host %s due to error %s" % (self.host, e)
 		else:
 			print "Starting pumps on host: %s" % self.host
 			for channel in self.pumps:
 				print "Pumping channel: " + channel
-				time.sleep(1)
-				tn.write(channel + " FUN RAT" + "\r\n")
-				time.sleep(1)
-				tn.write(channel + " RAT " + pump_rate + " MM" + "\r\n")
-				time.sleep(1)
-				tn.write(channel + " VOL " + volume + "\r\n")
-				time.sleep(1)
-				tn.write(channel + " DIR " + "WDR" + "\r\n")
-				time.sleep(1)
-				tn.write(channel + " RUN" + "\r\n")
-			time.sleep(1)
-			tn.close()
+				#meaning of these commands outlined in syringepump.com NE-500 manual
+				self.write_to_telnet(channel + " FUN RAT", channel + "S")
+				self.write_to_telnet(channel + " RAT " + pump_rate + " MM", channel + "S")
+				self.write_to_telnet(channel + " VOL " + volume, channel + "S")
+				self.write_to_telnet(channel + " DIR " + "WDR", channel + "S")
+				self.write_to_telnet(channel + " RUN", channel + "W")
+			self.tn.close()
+
+	def write_to_telnet(self, command, expected_response):
+		'''wrapper around Telnet's write function so I can handle exceptions 
+		in one method instead of chaining if conditionals for multiple
+		commands/exception handling
+
+		This talks to the StarTech RS-232 over IP adaptor, which is 
+		plugged into the pumps and accessible via Telnet port 100.
+		'''
+		self.tn.write(command + "\r\n")
+		resp = self.tn.read_until(expected_response, timeout=15)
+		if expected_response not in resp:
+			raise IOError("Pump didn't respond with expected value")
+
 
 if __name__ == "__main__":
 	room = BehaviorRoom()
