@@ -1,129 +1,211 @@
+from Phidgets.Devices.InterfaceKit import InterfaceKit
 import telnetlib
-import threading
 import time
-#config must be in the same directory as Pumpr.py
-import config
+import threading
 
-class BehaviorRoom(object):
-    def __init__(self, hosts=False):
-        '''
-        Represents a behavior room full of SkinnerBox instances. It gets 
-        hosts/channels from config and/or command line interface
-        and stores a list of SkinnerBox instances to iterate through.
+def newPumpConnection(IPaddr, port=100):
+    return telnetlib.Telnet(IPaddr, port)
 
-        e.g. for skinnerbox in BehaviorRoom():
-                skinnerbox.withdraw_pumps()
+class withdrawFully(threading.Thread):
+    def __init__(
+            self,
+            setup_name,
+            interfaceKit,
+            telnetconn,
+            isFullSensor_AnalogInputNumber_01=1,
+            isEmptySensor_AnalogInputNumber_01=2,
+            isFullSensor_AnalogInputNumber_02=3,
+            isEmptySensor_AnalogInputNumber_02=4,
+            pump_channels=["01", "02"]
+        ):
+        threading.Thread.__init__(self)
+        self.setup_name = setup_name
+        self.ikit = interfaceKit
+        self.pump_conn = telnetconn
+        self.channel_01_full_sensor_number = isFullSensor_AnalogInputNumber_01
+        self.channel_02_full_sensor_number = isFullSensor_AnalogInputNumber_02
+        self.pump_channels = pump_channels
 
-        Alternatively, you can manually overwrite the default config 
-        like this:
-            for skinnerbox in BehaviorRoom(hosts={'localhost': ["01"],
-                                                   '10.0.0.1': ["01"]}):
-                skinnerbox.withdraw_pumps()
+    def run(self):
+        time.sleep(0.2) #give everything time to get connected
+        if self.ikit.isAttachedToServer():
+            #set both pumps to withdraw volume 13.0mL at 3 mL/min
+            for ch in self.pump_channels:
+                self.pump_conn.write(ch + " VOL 13.0\r\n")
+                self.pump_conn.read_until(ch, timeout=5)
+                self.pump_conn.write(ch + " RAT 3.0 MM\r\n")
+                self.pump_conn.read_until(ch, timeout=5)
+                self.pump_conn.write(ch + " DIR WDR\r\n")
+                self.pump_conn.read_until(ch, timeout=5)
+            #now start withdrawing the syringes
+            for ch in self.pump_channels:
+                self.pump_conn.write(ch + " RUN\r\n")
+                self.pump_conn.read_until(ch + "W", timeout=5)
 
-        :param hosts: a dict with keys as IP addr strings and values
-            as a list of pump channels
-        '''
-        if hosts:
-            self.skinner_boxes = hosts
+            #monitor "full" sensors to stop the pumps when syringes are full
+            pump01_stopped = False
+            pump02_stopped = False
+            while True:
+                sensor01 = self.ikit.getSensorValue(self.channel_01_full_sensor_number)
+                sensor02 = self.ikit.getSensorValue(self.channel_02_full_sensor_number)
+                if sensor01 < 500 and pump01_stopped == False:
+                    self.pump_conn.write("01 STP\r\n")
+                    self.pump_conn.read_until("01", timeout=5)
+                    pump01_stopped = True
+                if sensor02 < 500 and pump02_stopped == False:
+                    self.pump_conn.write("02 STP\r\n")
+                    self.pump_conn.read_until("02", timeout=5)
+                    pump02_stopped = True
+                if pump01_stopped and pump02_stopped:
+                    break
         else:
-            self.skinner_boxes = self.get_boxes_from_config()
+            print self.setup_name, "failed to withdraw. self.ikit.isAttachedToServer() == False"
 
-    def get_boxes_from_config(self):
+class infuseFully(threading.Thread):
+    def __init__(
+            self,
+            setup_name,
+            interfaceKit,
+            telnetconn,
+            isFullSensor_AnalogInputNumber_01=1,
+            isEmptySensor_AnalogInputNumber_01=2,
+            isFullSensor_AnalogInputNumber_02=3,
+            isEmptySensor_AnalogInputNumber_02=4,
+            pump_channels=["01", "02"]
+        ):
+        threading.Thread.__init__(self)
+        self.setup_name = setup_name
+        self.ikit = interfaceKit
+        self.pump_conn = telnetconn
+        self.channel_01_empty_sensor_number = isEmptySensor_AnalogInputNumber_01
+        self.channel_02_empty_sensor_number = isEmptySensor_AnalogInputNumber_02
+        self.pump_channels = pump_channels
 
-        '''Returns a list of SkinnerBox instances'''
+    def run(self):
+        time.sleep(0.2) #give everything time to get connected
+        if self.ikit.isAttachedToServer():
+            #set both pumps to withdraw volume 13.0mL at 3 mL/min
+            for ch in self.pump_channels:
+                self.pump_conn.write(ch + " VOL 13.0\r\n")
+                self.pump_conn.read_until(ch, timeout=5)
+                self.pump_conn.write(ch + " RAT 3.0 MM\r\n")
+                self.pump_conn.read_until(ch, timeout=5)
+                self.pump_conn.write(ch + " DIR INF\r\n")
+                self.pump_conn.read_until(ch, timeout=5)
+            #now start infusing
+            for ch in self.pump_channels:
+                self.pump_conn.write(ch + " RUN\r\n")
+                self.pump_conn.read_until(ch + "I", timeout=5)
 
-        hosts_and_channels_dict = self.get_hosts_and_channels()
-
-        return [SkinnerBox(k, v) for k, v in hosts_and_channels_dict.iteritems()]
-
-
-    def get_hosts_and_channels(self):
-
-        '''Returns a dict with hosts as keys and channel lists as values, e.g.
-        {'192.168.0.20': ["01", "02"], 'setup2pump': ["01"]}
-
-        Currently gets config from a dict in the config.py module,
-        TODO: add command line options to specify hosts/channels
-        '''
-
-        result = config.config
-        print "hosts and channels: %s" % result
-        return result
-
-    def __iter__(self):
-        '''Access each SkinnerBox instance via a for loop for pretty code!'''
-        for skinnerbox in self.skinner_boxes:
-            yield skinnerbox
-
-
-class SkinnerBox(object):
-    def __init__(self, host, pumps, port=100):
-        '''
-        A behavior box object that runs Telnet commands to its pumps via the 
-        Startech RS232 over IP adaptor. All Telnet connections/commands runs
-        in a threading.Thread object.
-
-        :param host: a str of the StarTech adaptor's IP addr or nickname in 
-            /etc/hosts (e.g. "192.168.0.24" or "setup6")
-
-        :param pumps: list of strings with the pump channel numbers
-            for the behavior box. This is useful because some behavior boxes
-            will have 1 or 2 pumps, e.g. ["01"] or  ["01", "02"]
-
-        :param port: should always be 100, the StarTech port for Telnet
-
-        :param pump_volume: str of the volume in mL to withdraw or infuse
-
-        :param rate: str of rate in mL/minute to withdraw or infuse
-
-        '''
-
-        self.host = host
-        self.pumps = pumps
-        self.port = port
-
-    def withdraw_pumps(self, volume="8.0", pump_rate="2.0"):
-        '''Starts connection/pumping in a thread b/c non-blocking I/O is hard'''
-        try:
-            thread = threading.Thread(target=self._connect_and_withdraw_pumps(volume, pump_rate))
-            thread.start()
-        except Exception as e:
-            print "Couldn't pump host %s due to exception: %s" % (self.host, e)
-
-    def _connect_and_withdraw_pumps(self, volume, pump_rate):
-        '''helper function for self.withdraw_pumps; this runs in a thread'''
-        try:
-            self.tn = telnetlib.Telnet(self.host, self.port)
-            time.sleep(1)
-        except Exception as e:
-            print "Could not connect to host %s due to error %s" % (self.host, e)
+            #monitor "empty" sensors to stop the pumps when syringes are empty
+            pump01_stopped = False
+            pump02_stopped = False
+            while True:
+                sensor01 = self.ikit.getSensorValue(self.channel_01_empty_sensor_number)
+                sensor02 = self.ikit.getSensorValue(self.channel_02_empty_sensor_number)
+                if sensor01 < 500 and pump01_stopped == False:
+                    self.pump_conn.write("01 STP\r\n")
+                    self.pump_conn.read_until("01", timeout=5)
+                    pump01_stopped = True
+                if sensor02 < 500 and pump02_stopped == False:
+                    self.pump_conn.write("02 STP\r\n")
+                    self.pump_conn.read_until("02", timeout=5)
+                    pump02_stopped = True
+                if pump01_stopped and pump02_stopped:
+                    break
         else:
-            print "Starting pumps on host: %s" % self.host
-            for channel in self.pumps:
-                print "Pumping channel: " + channel
-                #meaning of these commands outlined in syringepump.com NE-500 manual
-                self.write_to_telnet(channel + " FUN RAT", channel + "S")
-                self.write_to_telnet(channel + " RAT " + pump_rate + " MM", channel + "S")
-                self.write_to_telnet(channel + " VOL " + volume, channel + "S")
-                self.write_to_telnet(channel + " DIR " + "WDR", channel + "S")
-                self.write_to_telnet(channel + " RUN", channel + "W")
-            self.tn.close()
+            print self.setup_name, "failed to infuse. self.ikit.isAttachedToServer() == False"
 
-    def write_to_telnet(self, command, expected_response):
-        '''wrapper around Telnet's write function so I can handle exceptions 
-        in one method instead of chaining if conditionals for multiple
-        commands/exception handling
+class primeForBehaviorSession(threading.Thread):
+    '''
+    Infuses 1 mL to get water flowing again for a behavior session (used after a full withdrawal).
+    '''
+    def __init__(
+            self,
+            setup_name,
+            interfaceKit,
+            telnetconn,
+            isFullSensor_AnalogInputNumber_01=1,
+            isEmptySensor_AnalogInputNumber_01=2,
+            isFullSensor_AnalogInputNumber_02=3,
+            isEmptySensor_AnalogInputNumber_02=4,
+            pump_channels=["01", "02"]
+        ):
+        threading.Thread.__init__(self)
+        self.setup_name = setup_name
+        self.ikit = interfaceKit
+        self.pump_conn = telnetconn
+        self.channel_01_full_sensor_number = isFullSensor_AnalogInputNumber_01
+        self.channel_02_full_sensor_number = isFullSensor_AnalogInputNumber_02
+        self.pump_channels = pump_channels
 
-        This talks to the StarTech RS-232 over IP adaptor, which is 
-        plugged into the pumps and accessible via Telnet port 100.
-        '''
-        self.tn.write(command + "\r\n")
-        resp = self.tn.read_until(expected_response, timeout=15)
-        if expected_response not in resp:
-            raise IOError("Pump didn't respond with expected value")
+    def run(self):
+        time.sleep(0.2) #give everything time to get connected
+        if self.ikit.isAttachedToServer():
+            #verify that syringe pumps are fully withdrawn (i.e. in "full" sensor range)
+            if not self.ikit.getSensorValue(self.channel_01_full_sensor_number) < 500:
+                w = withdrawFully(self.setup_name, self.ikit, self.pump_conn, pump_channels=["01"])
+                w.start()
+                w.join()
+            if not self.ikit.getSensorValue(self.channel_02_full_sensor_number) < 500:
+                w = withdrawFully(self.setup_name, self.ikit, self.pump_conn, pump_channels=["02"])
+                w.start()
+                w.join()
+            #everything should be withdrawn...let's prime 'em
+            for ch in self.pump_channels:
+                self.pump_conn.write(ch + " VOL 1.0\r\n")
+                self.pump_conn.read_until(ch, timeout=5)
+                self.pump_conn.write(ch + " RAT 3.0 MM\r\n")
+                self.pump_conn.read_until(ch, timeout=5)
+                self.pump_conn.write(ch + " DIR INF\r\n")
+                self.pump_conn.read_until(ch, timeout=5)
+                self.pump_conn.write(ch + " RUN\r\n")
+                self.pump_conn.read_until(ch + "I", timeout=5)
+        else:
+            print self.setup_name, "failed to prime for the behavior session. self.ikit.isAttachedToServer() == False"
 
+def cycleForever(behavior_setup_name, interfaceKitIPAddress, pumpIPAddress, interfaceKitPort=5001, pumpPort=100):
+    controller = InterfaceKit()
+    controller.openRemoteIP(interfaceKitIPAddress, interfaceKitPort)
+    pumpsConn = newPumpConnection(pumpIPAddress, pumpPort)
+    print "Withdraw/Infuse cycling forever...happy cleaning. :-)"
+    print "Protip: ctrl+c will exit the program after finishing the current cycle"
+
+    while True:
+        try:
+            infuse = infuseFully(behavior_setup_name, controller, pumpsConn)
+            infuse.start()
+            infuse.join()
+            withdraw = withdrawFully(behavior_setup_name, controller, pumpsConn)
+            withdraw.start()
+            withdraw.join()
+        except KeyboardInterrupt:
+            print "Exiting..."
+            pumpsConn.write("01 STP\r\n")
+            pumpsConn.read_until("01", timeout=5)
+            pumpsConn.write("02 STP\r\n")
+            pumpsConn.read_until("02", timeout=5)
+            pumpsConn.close()
+            break
+
+def cycleFor(numCycles, behavior_setup_name, interfaceKitIPAddress, pumpIPAddress, interfaceKitPort=5001, primeForBehavior=True, pumpPort=100):
+    controller = InterfaceKit()
+    controller.openRemoteIP(interfaceKitIPAddress, interfaceKitPort)
+    pumpsConn = newPumpConnection(pumpIPAddress, pumpPort)
+
+    #infuse fully then withdraw fully for numCycles
+    for i in xrange(numCycles):
+        infuse = infuseFully(behavior_setup_name, controller, pumpsConn)
+        infuse.start()
+        infuse.join()
+        withdraw = withdrawFully(behavior_setup_name, controller, pumpsConn)
+        withdraw.start()
+        withdraw.join()
+    if primeForBehavior:
+        prime = primeForBehaviorSession(behavior_setup_name, controller, pumpsConn)
+        prime.start()
+        prime.join()
+    pumpsConn.close()
 
 if __name__ == "__main__":
-    room = BehaviorRoom()
-    for skinnerbox in room:
-        skinnerbox.withdraw_pumps()
+    cycleFor(3, "travis", "10.251.103.12", "10.0.254.254")
