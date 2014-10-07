@@ -1,4 +1,8 @@
 *.pyc
 .DS_Store
 config.json
+build/
+*.egg-info
+dist/
+venv/
 
