@@ -206,6 +206,3 @@ def cycleFor(numCycles, behavior_setup_name, interfaceKitIPAddress, pumpIPAddres
         prime.start()
         prime.join()
     pumpsConn.close()
-
-if __name__ == "__main__":
-    cycleFor(3, "travis", "10.251.103.12", "10.0.254.254")
