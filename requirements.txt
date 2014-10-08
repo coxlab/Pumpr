@@ -1,0 +1,4 @@
+Phidgets==2.1.8
+docopt==0.6.1
+pumpr==0.1.0
+wsgiref==0.1.2

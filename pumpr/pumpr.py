@@ -1,4 +1,7 @@
+__version__ = "0.1.0"
+
 from Phidgets.Devices.InterfaceKit import InterfaceKit
+from .cli import parseCommandLineArgs
 import telnetlib
 import time
 import threading
@@ -33,7 +36,7 @@ class withdrawFully(threading.Thread):
             for ch in self.pump_channels:
                 self.pump_conn.write(ch + " VOL 13.0\r\n")
                 self.pump_conn.read_until(ch, timeout=5)
-                self.pump_conn.write(ch + " RAT 3.0 MM\r\n")
+                self.pump_conn.write(ch + " RAT 5.0 MM\r\n")
                 self.pump_conn.read_until(ch, timeout=5)
                 self.pump_conn.write(ch + " DIR WDR\r\n")
                 self.pump_conn.read_until(ch, timeout=5)
@@ -88,7 +91,7 @@ class infuseFully(threading.Thread):
             for ch in self.pump_channels:
                 self.pump_conn.write(ch + " VOL 13.0\r\n")
                 self.pump_conn.read_until(ch, timeout=5)
-                self.pump_conn.write(ch + " RAT 3.0 MM\r\n")
+                self.pump_conn.write(ch + " RAT 5.0 MM\r\n")
                 self.pump_conn.read_until(ch, timeout=5)
                 self.pump_conn.write(ch + " DIR INF\r\n")
                 self.pump_conn.read_until(ch, timeout=5)
@@ -206,3 +209,10 @@ def cycleFor(numCycles, behavior_setup_name, interfaceKitIPAddress, pumpIPAddres
         prime.start()
         prime.join()
     pumpsConn.close()
+
+def main():
+    command_line_args = parseCommandLineArgs()
+    ikit = InterfaceKit()
+    print command_line_args
+#if __name__ == "__main__":
+    #cycleFor(2, "travis", "10.251.103.12", "10.0.254.254")
