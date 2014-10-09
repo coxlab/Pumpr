@@ -2,6 +2,7 @@ __version__ = "0.1.0"
 
 from Phidgets.Devices.InterfaceKit import InterfaceKit
 from .cli import parseCommandLineArgs
+from .config import saveNewSetup, deleteSetup, updateSetupField
 import telnetlib
 import time
 import threading
@@ -211,8 +212,22 @@ def cycleFor(numCycles, behavior_setup_name, interfaceKitIPAddress, pumpIPAddres
     pumpsConn.close()
 
 def main():
-    command_line_args = parseCommandLineArgs()
-    ikit = InterfaceKit()
-    print command_line_args
-#if __name__ == "__main__":
-    #cycleFor(2, "travis", "10.251.103.12", "10.0.254.254")
+    args = parseCommandLineArgs()
+    if args["add"]:
+        saveNewSetup(
+            args["setupName"][0],
+            args["phidgetWebServiceIPaddress"],
+            args["StartechAdaptorIPaddress"],
+            phidget_webservice_listen_port=int(args["portNum"]),
+            pump_telnet_listen_port=int(args["portNum2"]),
+        )
+    elif args["rm"]:
+        for setup in args["setupName"]:
+            deleteSetup(setup)
+    elif args["config"] and args["channels"]:
+        updateSetupField(args["setupName"][0], "pump_channels", [chan for chan in args["chans"]])
+    else:
+        pass
+
+
+
