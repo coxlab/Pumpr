@@ -1,7 +1,7 @@
 """Pumpr.
 
 Usage:
-    pumpr add <setupName> <phidgetWebServiceIPaddress> <StartechAdaptorIPaddress> [--phidgetPort=<portNum>] [--startechPort=<portNum2>]
+    pumpr add <setupName> <phidgetWebServiceIPaddress> <StartechAdaptorIPaddress> [--phidgetPort=<portNum>] [--startechPort=<portNum>]
     pumpr rm <setupName>...
     pumpr run forever <setupName>...
     pumpr run cycle <setupName>... [-n=<numCycles>] [--primePumps=<boolean>]

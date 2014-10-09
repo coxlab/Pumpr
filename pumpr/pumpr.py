@@ -2,7 +2,7 @@ __version__ = "0.1.0"
 
 from Phidgets.Devices.InterfaceKit import InterfaceKit
 from .cli import parseCommandLineArgs
-from .config import saveNewSetup, deleteSetup, updateSetupField
+from .config import saveNewSetup, deleteSetup, updateSetupField, getSetupInfoFromConfig
 import telnetlib
 import time
 import threading
@@ -33,8 +33,9 @@ class withdrawFully(threading.Thread):
     def run(self):
         time.sleep(0.2) #give everything time to get connected
         if self.ikit.isAttachedToServer():
-            #set both pumps to withdraw volume 13.0mL at 3 mL/min
+            #set both pumps to withdraw volume 13.0mL at 5 mL/min
             for ch in self.pump_channels:
+                ch = str(ch) #config file strs are unicode, Telnet needs str
                 self.pump_conn.write(ch + " VOL 13.0\r\n")
                 self.pump_conn.read_until(ch, timeout=5)
                 self.pump_conn.write(ch + " RAT 5.0 MM\r\n")
@@ -43,6 +44,7 @@ class withdrawFully(threading.Thread):
                 self.pump_conn.read_until(ch, timeout=5)
             #now start withdrawing the syringes
             for ch in self.pump_channels:
+                ch = str(ch) #config file strs are unicode, Telnet needs str
                 self.pump_conn.write(ch + " RUN\r\n")
                 self.pump_conn.read_until(ch + "W", timeout=5)
 
@@ -88,8 +90,9 @@ class infuseFully(threading.Thread):
     def run(self):
         time.sleep(0.2) #give everything time to get connected
         if self.ikit.isAttachedToServer():
-            #set both pumps to withdraw volume 13.0mL at 3 mL/min
+            #set both pumps to withdraw volume 13.0mL at 5 mL/min
             for ch in self.pump_channels:
+                ch = str(ch) #config file strs are unicode, Telnet needs str
                 self.pump_conn.write(ch + " VOL 13.0\r\n")
                 self.pump_conn.read_until(ch, timeout=5)
                 self.pump_conn.write(ch + " RAT 5.0 MM\r\n")
@@ -98,6 +101,7 @@ class infuseFully(threading.Thread):
                 self.pump_conn.read_until(ch, timeout=5)
             #now start infusing
             for ch in self.pump_channels:
+                ch = str(ch) #config file strs are unicode, Telnet needs str
                 self.pump_conn.write(ch + " RUN\r\n")
                 self.pump_conn.read_until(ch + "I", timeout=5)
 
@@ -157,6 +161,7 @@ class primeForBehaviorSession(threading.Thread):
                 w.join()
             #everything should be withdrawn...let's prime 'em
             for ch in self.pump_channels:
+                ch = str(ch) #config file strs are unicode, Telnet needs str
                 self.pump_conn.write(ch + " VOL 1.0\r\n")
                 self.pump_conn.read_until(ch, timeout=5)
                 self.pump_conn.write(ch + " RAT 3.0 MM\r\n")
@@ -192,42 +197,61 @@ def cycleForever(behavior_setup_name, interfaceKitIPAddress, pumpIPAddress, inte
             pumpsConn.close()
             break
 
-def cycleFor(numCycles, behavior_setup_name, interfaceKitIPAddress, pumpIPAddress, interfaceKitPort=5001, primeForBehavior=True, pumpPort=100):
+def cycleFor(numCycles, behavior_setup_name, interfaceKitIPAddress, pumpIPAddress, interfaceKitPort=5001, primeForBehavior=True, pumpPort=100, pump_channels=["01", "02"]):
     controller = InterfaceKit()
     controller.openRemoteIP(interfaceKitIPAddress, interfaceKitPort)
     pumpsConn = newPumpConnection(pumpIPAddress, pumpPort)
 
     #infuse fully then withdraw fully for numCycles
     for i in xrange(numCycles):
-        infuse = infuseFully(behavior_setup_name, controller, pumpsConn)
+        infuse = infuseFully(behavior_setup_name, controller, pumpsConn, pump_channels=pump_channels)
         infuse.start()
         infuse.join()
-        withdraw = withdrawFully(behavior_setup_name, controller, pumpsConn)
+        withdraw = withdrawFully(behavior_setup_name, controller, pumpsConn, pump_channels=pump_channels)
         withdraw.start()
         withdraw.join()
     if primeForBehavior:
-        prime = primeForBehaviorSession(behavior_setup_name, controller, pumpsConn)
+        prime = primeForBehaviorSession(behavior_setup_name, controller, pumpsConn, pump_channels=pump_channels)
         prime.start()
         prime.join()
     pumpsConn.close()
 
 def main():
     args = parseCommandLineArgs()
+    config = getSetupInfoFromConfig()
     if args["add"]:
         saveNewSetup(
-            args["setupName"][0],
-            args["phidgetWebServiceIPaddress"],
-            args["StartechAdaptorIPaddress"],
-            phidget_webservice_listen_port=int(args["portNum"]),
-            pump_telnet_listen_port=int(args["portNum2"]),
+            args["<setupName>"][0],
+            args["<phidgetWebServiceIPaddress>"],
+            args["<StartechAdaptorIPaddress>"],
+            phidget_webservice_listen_port=int(args["--phidgetPort"]),
+            pump_telnet_listen_port=int(args["--startechPort"]),
         )
     elif args["rm"]:
-        for setup in args["setupName"]:
+        for setup in args["<setupName>"]:
             deleteSetup(setup)
     elif args["config"] and args["channels"]:
-        updateSetupField(args["setupName"][0], "pump_channels", [chan for chan in args["chans"]])
+        updateSetupField(args["<setupName>"][0], "pump_channels", [chan for chan in args["<chans>"]])
+    elif args["run"]:
+        if args["cycle"]:
+            for setup in args["<setupName>"]:
+                #will have to run this in a thread so it doesnt block for multiple setups
+                cycleFor(
+                    int(args["-n"]),
+                    setup,
+                    config["setups"][setup]["setupIPaddr"],
+                    config["setups"][setup]["pumpIPaddr"],
+                    interfaceKitPort=config["setups"][setup]["phidget_webservice_listen_port"],
+                    primeForBehavior=args["--primePumps"],
+                    pumpPort=config["setups"][setup]["pump_telnet_listen_port"],
+                    pump_channels=config["setups"][setup]["pump_channels"]
+                )
+        if args["forever"]:
+            for setup in args["<setupNum>"]:
+                #will have to run this in a thread so it doesnt block for multiple setups
+                #cycleForever(
+                #    )
     else:
         pass
-
 
 

@@ -15,7 +15,7 @@ def saveNewSetup(setup_name, setupIPaddr, pumpIPaddr, phidget_webservice_listen_
             "pump_telnet_listen_port": pump_telnet_listen_port
         }
         with open(os.path.expanduser("~/.pumpr/config.json"), "w") as newconfigfile:
-            json.dump(configdict, newconfigfile, sort_keys=True, indent=4, ensure_ascii=False)
+            json.dump(configdict, newconfigfile, sort_keys=True, indent=4, ensure_ascii=True)
 
     #TODO eliminate potential race conditions in else clause http://stackoverflow.com/questions/273192/check-if-a-directory-exists-and-create-it-if-necessary
     else:
@@ -33,11 +33,11 @@ def saveNewSetup(setup_name, setupIPaddr, pumpIPaddr, phidget_webservice_listen_
 
         if os.path.isdir(os.path.expanduser("~/.pumpr")):
             with open(os.path.expanduser("~/.pumpr/config.json"), "w") as newconfigfile:
-                json.dump(configdict, newconfigfile, sort_keys=True, indent=4, ensure_ascii=False)
+                json.dump(configdict, newconfigfile, sort_keys=True, indent=4, ensure_ascii=True)
         else:
             os.makedirs(os.path.expanduser("~/.pumpr"))
             with open(os.path.expanduser("~/.pumpr/config.json"), "w") as newconfigfile:
-                json.dump(configdict, newconfigfile, sort_keys=True, indent=4, ensure_ascii=False)
+                json.dump(configdict, newconfigfile, sort_keys=True, indent=4, ensure_ascii=True)
 
 def deleteSetup(setup_name):
     if os.path.exists(os.path.expanduser("~/.pumpr/config.json")):
@@ -51,7 +51,7 @@ def deleteSetup(setup_name):
             pass
 
         with open(os.path.expanduser("~/.pumpr/config.json"), "w") as newconfigfile:
-            json.dump(configdict, newconfigfile, sort_keys=True, indent=4, ensure_ascii=False)
+            json.dump(configdict, newconfigfile, sort_keys=True, indent=4, ensure_ascii=True)
 
 def updateSetupField(setup_name, field_to_update, new_value):
     if os.path.exists(os.path.expanduser("~/.pumpr/config.json")):
@@ -71,8 +71,14 @@ def updateSetupField(setup_name, field_to_update, new_value):
             else:
                 configdict["setups"][setup_name][field_to_update] = new_value
                 with open(os.path.expanduser("~/.pumpr/config.json"), "w") as newconfigfile:
-                    json.dump(configdict, newconfigfile, sort_keys=True, indent=4, ensure_ascii=False)
+                    json.dump(configdict, newconfigfile, sort_keys=True, indent=4, ensure_ascii=True)
                 return True, None
+
+def getSetupInfoFromConfig():
+    if os.path.exists(os.path.expanduser("~/.pumpr/config.json")):
+        with open(os.path.expanduser("~/.pumpr/config.json")) as configfile:
+            configdict = json.load(configfile)
+            return configdict
 
 if __name__ == "__main__":
     '''
