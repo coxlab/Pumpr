@@ -325,6 +325,7 @@ def main():
             controller = InterfaceKit()
             controller.openRemoteIP(config["setups"][setup]["setupIPaddr"], config["setups"][setup]["phidget_webservice_listen_port"])
             pumpsConn = newPumpConnection(config["setups"][setup]["pumpIPaddr"], port=config["setups"][setup]["pump_telnet_listen_port"])
+            time.sleep(0.2) #give time to establish connections; multiple threads need extra time
             pump_routine = infuseFully(
                 setup,
                 controller,
@@ -352,6 +353,7 @@ def main():
             controller = InterfaceKit()
             controller.openRemoteIP(config["setups"][setup]["setupIPaddr"], config["setups"][setup]["phidget_webservice_listen_port"])
             pumpsConn = newPumpConnection(config["setups"][setup]["pumpIPaddr"], port=config["setups"][setup]["pump_telnet_listen_port"])
+            time.sleep(0.2) #give time to establish connections; multiple threads need extra time
             pump_routine = withdrawFully(
                 setup,
                 controller,
