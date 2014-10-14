@@ -173,48 +173,74 @@ class primeForBehaviorSession(threading.Thread):
         else:
             print self.setup_name, "failed to prime for the behavior session. self.ikit.isAttachedToServer() == False"
 
-def cycleForever(behavior_setup_name, interfaceKitIPAddress, pumpIPAddress, interfaceKitPort=5001, pumpPort=100):
-    controller = InterfaceKit()
-    controller.openRemoteIP(interfaceKitIPAddress, interfaceKitPort)
-    pumpsConn = newPumpConnection(pumpIPAddress, pumpPort)
-    print "Withdraw/Infuse cycling forever...happy cleaning. :-)"
-    print "Protip: ctrl+c will exit the program after finishing the current cycle"
+class cycleForever(threading.Thread):
+    def __init__(
+        self,
+        behavior_setup_name,
+        interfaceKitIPAddress,
+        pumpIPAddress,
+        interfaceKitPort=5001,
+        pumpPort=100,
+        pump_channels=["01", "02"]
+        ):
+        threading.Thread.__init__(self)
+        self.setup_name = behavior_setup_name
+        self.interfaceKitIPAddress = interfaceKitIPAddress
+        self.interfaceKitPort = interfaceKitPort
+        self.controller = InterfaceKit()
+        self.controller.openRemoteIP(self.interfaceKitIPAddress, self.interfaceKitPort)
+        self.pumpIPAddress = pumpIPAddress
+        self.pumpPort = pumpPort
+        self.pumpsConn = newPumpConnection(self.pumpIPAddress, self.pumpPort)
+        self.pump_channels = pump_channels
 
-    while True:
-        try:
-            infuse = infuseFully(behavior_setup_name, controller, pumpsConn)
+    def run(self):
+        while True:
+            infuse = infuseFully(self.setup_name, self.controller, self.pumpsConn, pump_channels=self.pump_channels)
             infuse.start()
             infuse.join()
-            withdraw = withdrawFully(behavior_setup_name, controller, pumpsConn)
+            withdraw = withdrawFully(self.setup_name, self.controller, self.pumpsConn, pump_channels=self.pump_channels)
             withdraw.start()
             withdraw.join()
-        except KeyboardInterrupt:
-            print "Exiting..."
-            pumpsConn.write("01 STP\r\n")
-            pumpsConn.read_until("01", timeout=5)
-            pumpsConn.write("02 STP\r\n")
-            pumpsConn.read_until("02", timeout=5)
-            pumpsConn.close()
-            break
 
-def cycleFor(numCycles, behavior_setup_name, interfaceKitIPAddress, pumpIPAddress, interfaceKitPort=5001, primeForBehavior=True, pumpPort=100, pump_channels=["01", "02"]):
-    controller = InterfaceKit()
-    controller.openRemoteIP(interfaceKitIPAddress, interfaceKitPort)
-    pumpsConn = newPumpConnection(pumpIPAddress, pumpPort)
-
-    #infuse fully then withdraw fully for numCycles
-    for i in xrange(numCycles):
-        infuse = infuseFully(behavior_setup_name, controller, pumpsConn, pump_channels=pump_channels)
-        infuse.start()
-        infuse.join()
-        withdraw = withdrawFully(behavior_setup_name, controller, pumpsConn, pump_channels=pump_channels)
-        withdraw.start()
-        withdraw.join()
-    if primeForBehavior:
-        prime = primeForBehaviorSession(behavior_setup_name, controller, pumpsConn, pump_channels=pump_channels)
-        prime.start()
-        prime.join()
-    pumpsConn.close()
+class cycleFor(threading.Thread):
+    def __init__(
+        self,
+        numCycles,
+        behavior_setup_name,
+        interfaceKitIPAddress,
+        pumpIPAddress,
+        interfaceKitPort=5001,
+        primeForBehavior=True,
+        pumpPort=100,
+        pump_channels=["01", "02"]
+        ):
+        threading.Thread.__init__(self)
+        self.controller = InterfaceKit()
+        self.controller.openRemoteIP(interfaceKitIPAddress, interfaceKitPort)
+        self.pumpsConn = newPumpConnection(pumpIPAddress, pumpPort)
+        self.numCycles = numCycles
+        self.behavior_setup_name = behavior_setup_name
+        self.interfaceKitIPAddress = interfaceKitIPAddress
+        self.pumpIPAddress = pumpIPAddress
+        self.interfaceKitPort = interfaceKitPort
+        self.primeForBehavior = primeForBehavior
+        self.pumpPort = pumpPort
+        self.pump_channels = pump_channels
+    def run(self):
+        #infuse fully then withdraw fully for numCycles
+        for i in xrange(self.numCycles):
+            infuse = infuseFully(self.behavior_setup_name, self.controller, self.pumpsConn, pump_channels=self.pump_channels)
+            infuse.start()
+            infuse.join()
+            withdraw = withdrawFully(self.behavior_setup_name, self.controller, self.pumpsConn, pump_channels=self.pump_channels)
+            withdraw.start()
+            withdraw.join()
+        if self.primeForBehavior:
+            prime = primeForBehaviorSession(self.behavior_setup_name, self.controller, self.pumpsConn, pump_channels=self.pump_channels)
+            prime.start()
+            prime.join()
+        self.pumpsConn.close()
 
 def main():
     args = parseCommandLineArgs()
@@ -227,16 +253,20 @@ def main():
             phidget_webservice_listen_port=int(args["--phidgetPort"]),
             pump_telnet_listen_port=int(args["--startechPort"]),
         )
+
     elif args["rm"]:
         for setup in args["<setupName>"]:
             deleteSetup(setup)
+
     elif args["config"] and args["channels"]:
         updateSetupField(args["<setupName>"][0], "pump_channels", [chan for chan in args["<chans>"]])
+
     elif args["run"]:
         if args["cycle"]:
+            threads = []
             for setup in args["<setupName>"]:
-                #will have to run this in a thread so it doesnt block for multiple setups
-                cycleFor(
+                #run pump routine for each setup in its own thread
+                pump_routine = cycleFor(
                     int(args["-n"]),
                     setup,
                     config["setups"][setup]["setupIPaddr"],
@@ -246,12 +276,103 @@ def main():
                     pumpPort=config["setups"][setup]["pump_telnet_listen_port"],
                     pump_channels=config["setups"][setup]["pump_channels"]
                 )
+                pump_routine.setDaemon(True)
+                pump_routine.start()
+                threads.append(pump_routine)
+            print "Starting infuse/withdraw for", args["-n"], "cycles. Ctrl+c to stop pumping..."
+            try:
+                while threading.activeCount() > 1: #keep main thread running so it can raise KeyboardInterrupt
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                for pump_routine in threads: #TODO make this thread safe with threading.Lock in case main thread tries to access pumpConns concurrently
+                    if pump_routine.isAlive():
+                        for ch in pump_routine.pump_channels:
+                            ch = str(ch)
+                            pump_routine.pumpsConn.write(ch + " STP\r\n")
+                            pump_routine.pumpsConn.read_until(ch, timeout=5)
+                        pump_routine.pumpsConn.close()
+
         if args["forever"]:
-            for setup in args["<setupNum>"]:
-                #will have to run this in a thread so it doesnt block for multiple setups
-                #cycleForever(
-                #    )
+            threads = []
+            for setup in args["<setupName>"]:
+                pump_routine = cycleForever(
+                    setup,
+                    config["setups"][setup]["setupIPaddr"],
+                    config["setups"][setup]["pumpIPaddr"],
+                    interfaceKitPort=config["setups"][setup]["phidget_webservice_listen_port"],
+                    pumpPort=config["setups"][setup]["pump_telnet_listen_port"],
+                    pump_channels=config["setups"][setup]["pump_channels"]
+                )
+                pump_routine.setDaemon(True)
+                pump_routine.start()
+                threads.append(pump_routine)
+            print "Withdraw/Infuse cycling forever...happy cleaning. :-)"
+            print "Protip: ctrl+c will exit the program after finishing the current cycle"
+            try:
+                while threading.activeCount() > 1:
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                for pump_routine in threads:
+                    if pump_routine.isAlive():
+                        for ch in pump_routine.pump_channels:
+                            ch = str(ch)
+                            pump_routine.pumpsConn.write(ch + " STP\r\n")
+                            pump_routine.pumpsConn.read_until(ch, timeout=5)
+                        pump_routine.pumpsConn.close()
+    elif args["inf"]:
+        threads = []
+        for setup in args["<setupName>"]:
+            controller = InterfaceKit()
+            controller.openRemoteIP(config["setups"][setup]["setupIPaddr"], config["setups"][setup]["phidget_webservice_listen_port"])
+            pumpsConn = newPumpConnection(config["setups"][setup]["pumpIPaddr"], port=config["setups"][setup]["pump_telnet_listen_port"])
+            pump_routine = infuseFully(
+                setup,
+                controller,
+                pumpsConn,
+                pump_channels=config["setups"][setup]["pump_channels"]
+            )
+            pump_routine.setDaemon(True)
+            pump_routine.start()
+            threads.append(pump_routine)
+        print "Infusing...press ctrl+c to cancel."
+        try:
+            while threading.activeCount() > 1:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            for pump_routine in threads:
+                    if pump_routine.isAlive():
+                        for ch in pump_routine.pump_channels:
+                            ch = str(ch)
+                            pump_routine.pump_conn.write(ch + " STP\r\n")
+                            pump_routine.pump_conn.read_until(ch, timeout=5)
+                        pump_routine.pump_conn.close()
+    elif args["wdr"]:
+        threads = []
+        for setup in args["<setupName>"]:
+            controller = InterfaceKit()
+            controller.openRemoteIP(config["setups"][setup]["setupIPaddr"], config["setups"][setup]["phidget_webservice_listen_port"])
+            pumpsConn = newPumpConnection(config["setups"][setup]["pumpIPaddr"], port=config["setups"][setup]["pump_telnet_listen_port"])
+            pump_routine = withdrawFully(
+                setup,
+                controller,
+                pumpsConn,
+                pump_channels=config["setups"][setup]["pump_channels"]
+            )
+            pump_routine.setDaemon(True)
+            pump_routine.start()
+            threads.append(pump_routine)
+        print "Withdrawing...press ctrl+c to cancel."
+        try:
+            while threading.activeCount() > 1:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            for pump_routine in threads:
+                    if pump_routine.isAlive():
+                        for ch in pump_routine.pump_channels:
+                            ch = str(ch)
+                            pump_routine.pump_conn.write(ch + " STP\r\n")
+                            pump_routine.pump_conn.read_until(ch, timeout=5)
+                        pump_routine.pump_conn.close()
     else:
         pass
-
 
