@@ -19,6 +19,6 @@ setup(
 	author="Travis Chapman",
 	author_email="travisechapman@gmail.com",
 	url="http://seetravisblog.com",
-	install_requires="Phidgets>=2.1.8",
+	install_requires=["Phidgets>=2.1.8", "docopt"],
 	dependency_links=["https://github.com/teechap/Phidgets/tarball/master#egg=Phidgets-2.1.8"]
 )
