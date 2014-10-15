@@ -15,7 +15,7 @@ setup(
 	},
 	version=version,
 	description="Fills syringepump.com syringes with water so you don't have to",
-	long_description="This is a test",
+	long_description="Fills syringepump.com syringes with water, provides simple commands to add new pumps to the network, cleaning routines, etc.",
 	author="Travis Chapman",
 	author_email="travisechapman@gmail.com",
 	url="http://seetravisblog.com",
