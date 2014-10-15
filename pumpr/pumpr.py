@@ -170,6 +170,7 @@ class primeForBehaviorSession(threading.Thread):
                 self.pump_conn.read_until(ch, timeout=5)
                 self.pump_conn.write(ch + " RUN\r\n")
                 self.pump_conn.read_until(ch + "I", timeout=5)
+            time.sleep(19) #keep the connection around on the main thread for cancellation
         else:
             print self.setup_name, "failed to prime for the behavior session. self.ikit.isAttachedToServer() == False"
 
