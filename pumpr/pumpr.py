@@ -375,6 +375,35 @@ def main():
                             pump_routine.pump_conn.write(ch + " STP\r\n")
                             pump_routine.pump_conn.read_until(ch, timeout=5)
                         pump_routine.pump_conn.close()
+
+    elif args["prime"]:
+        threads = []
+        for setup in args["<setupName>"]:
+            controller = InterfaceKit()
+            controller.openRemoteIP(config["setups"][setup]["setupIPaddr"], config["setups"][setup]["phidget_webservice_listen_port"])
+            pumpsConn = newPumpConnection(config["setups"][setup]["pumpIPaddr"], port=config["setups"][setup]["pump_telnet_listen_port"])
+            time.sleep(0.2) #give time to establish connections; multiple threads need extra time
+            pump_routine = primeForBehaviorSession(
+                setup,
+                controller,
+                pumpsConn,
+                pump_channels=config["setups"][setup]["pump_channels"]
+            )
+            pump_routine.setDaemon(True)
+            pump_routine.start()
+            threads.append(pump_routine)
+        print "Infusing 1 mL to get water flowing for a behavior session...press ctrl+c to cancel."
+        try:
+            while threading.activeCount() > 1:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            for pump_routine in threads:
+                    if pump_routine.isAlive():
+                        for ch in pump_routine.pump_channels:
+                            ch = str(ch)
+                            pump_routine.pump_conn.write(ch + " STP\r\n")
+                            pump_routine.pump_conn.read_until(ch, timeout=5)
+                        pump_routine.pump_conn.close()
     else:
         pass
 
